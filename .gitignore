@@ -7,7 +7,4 @@ __pycache__/
 models/*.pth
 models/*.pt
 .DS_Store
-results/cnn_probabilities.npy
-results/cnn_true_labels.npy
-results/hmm_decoded_sequence.npy
-results/hmm_transition_matrix.npy
+results/*.npy

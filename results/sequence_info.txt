@@ -1,0 +1,5 @@
+Sequence length: 10
+Noise strength: 0.15
+Total usable samples: 13050
+Number of sequences: 1305
+Number of classes: 29

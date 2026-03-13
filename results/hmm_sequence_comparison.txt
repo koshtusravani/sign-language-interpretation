@@ -1,0 +1,3 @@
+Raw CNN accuracy (clean probabilities): 99.75%
+Raw CNN accuracy (noisy probabilities): 99.76%
+HMM-decoded accuracy (noisy probabilities): 99.94%

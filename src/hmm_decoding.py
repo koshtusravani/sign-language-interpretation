@@ -11,11 +11,6 @@ class HMMDecoder:
         self.transition_matrix = self._build_transition_matrix(stay_prob)
 
     def _build_transition_matrix(self, stay_prob: float) -> np.ndarray:
-        """
-        Build a simple transition matrix.
-        - High probability of staying in the same class
-        - Remaining probability spread across other classes
-        """
         transition = np.full(
             (self.num_classes, self.num_classes),
             (1.0 - stay_prob) / (self.num_classes - 1),
@@ -25,16 +20,8 @@ class HMMDecoder:
         return transition
 
     def viterbi_decode(self, emissions: np.ndarray) -> np.ndarray:
-        """
-        emissions: shape (T, N)
-            T = number of samples / time steps
-            N = number of classes
-        returns:
-            best path of class indices, shape (T,)
-        """
         T, N = emissions.shape
 
-        # avoid log(0)
         emissions = np.clip(emissions, 1e-12, 1.0)
         transitions = np.clip(self.transition_matrix, 1e-12, 1.0)
 
@@ -44,10 +31,8 @@ class HMMDecoder:
         dp = np.zeros((T, N), dtype=np.float64)
         backpointer = np.zeros((T, N), dtype=np.int32)
 
-        # initial step
         dp[0] = log_emissions[0]
 
-        # dynamic programming
         for t in range(1, T):
             for j in range(N):
                 scores = dp[t - 1] + log_transitions[:, j]
@@ -55,7 +40,6 @@ class HMMDecoder:
                 dp[t, j] = scores[best_prev] + log_emissions[t, j]
                 backpointer[t, j] = best_prev
 
-        # backtrack
         best_path = np.zeros(T, dtype=np.int32)
         best_path[-1] = np.argmax(dp[-1])
 
@@ -65,38 +49,54 @@ class HMMDecoder:
         return best_path
 
 
+def compute_accuracy(preds: np.ndarray, labels: np.ndarray) -> float:
+    return (preds == labels).mean()
+
+
 def main():
-    probs_path = os.path.join(RESULTS_DIR, "cnn_probabilities.npy")
-    labels_path = os.path.join(RESULTS_DIR, "cnn_true_labels.npy")
+    noisy_probs_path = os.path.join(RESULTS_DIR, "sequence_noisy_probabilities.npy")
+    clean_probs_path = os.path.join(RESULTS_DIR, "sequence_probabilities.npy")
+    labels_path = os.path.join(RESULTS_DIR, "sequence_true_labels.npy")
 
-    if not os.path.exists(probs_path):
-        raise FileNotFoundError(f"Missing file: {probs_path}")
+    if not os.path.exists(noisy_probs_path):
+        raise FileNotFoundError(f"Missing file: {noisy_probs_path}")
+    if not os.path.exists(clean_probs_path):
+        raise FileNotFoundError(f"Missing file: {clean_probs_path}")
+    if not os.path.exists(labels_path):
+        raise FileNotFoundError(f"Missing file: {labels_path}")
 
-    emissions = np.load(probs_path)
-    num_classes = emissions.shape[1]
+    noisy_probs = np.load(noisy_probs_path)
+    clean_probs = np.load(clean_probs_path)
+    true_labels = np.load(labels_path)
+
+    num_sequences, sequence_length, num_classes = noisy_probs.shape
 
     decoder = HMMDecoder(num_classes=num_classes, stay_prob=0.8)
-    decoded_sequence = decoder.viterbi_decode(emissions)
 
-    np.save(os.path.join(RESULTS_DIR, "hmm_decoded_sequence.npy"), decoded_sequence)
+    raw_clean_preds = np.argmax(clean_probs, axis=2)
+    raw_noisy_preds = np.argmax(noisy_probs, axis=2)
+
+    hmm_preds = np.zeros_like(raw_noisy_preds)
+
+    for i in range(num_sequences):
+        hmm_preds[i] = decoder.viterbi_decode(noisy_probs[i])
+
+    clean_acc = compute_accuracy(raw_clean_preds, true_labels)
+    noisy_acc = compute_accuracy(raw_noisy_preds, true_labels)
+    hmm_acc = compute_accuracy(hmm_preds, true_labels)
+
+    np.save(os.path.join(RESULTS_DIR, "hmm_sequence_predictions.npy"), hmm_preds)
     np.save(os.path.join(RESULTS_DIR, "hmm_transition_matrix.npy"), decoder.transition_matrix)
 
-    # optional quick comparison if true labels exist
-    if os.path.exists(labels_path):
-        true_labels = np.load(labels_path)
-        raw_preds = np.argmax(emissions, axis=1)
+    with open(os.path.join(RESULTS_DIR, "hmm_sequence_comparison.txt"), "w") as f:
+        f.write(f"Raw CNN accuracy (clean probabilities): {clean_acc * 100:.2f}%\n")
+        f.write(f"Raw CNN accuracy (noisy probabilities): {noisy_acc * 100:.2f}%\n")
+        f.write(f"HMM-decoded accuracy (noisy probabilities): {hmm_acc * 100:.2f}%\n")
 
-        raw_acc = (raw_preds == true_labels).mean()
-        hmm_acc = (decoded_sequence == true_labels).mean()
-
-        with open(os.path.join(RESULTS_DIR, "hmm_comparison.txt"), "w") as f:
-            f.write(f"Raw CNN accuracy: {raw_acc * 100:.2f}%\n")
-            f.write(f"HMM-decoded accuracy: {hmm_acc * 100:.2f}%\n")
-
-        print(f"Raw CNN accuracy: {raw_acc * 100:.2f}%")
-        print(f"HMM-decoded accuracy: {hmm_acc * 100:.2f}%")
-
-    print("HMM decoded sequence saved to results/hmm_decoded_sequence.npy")
+    print("Saved:")
+    print("- results/hmm_sequence_predictions.npy")
+    print("- results/hmm_transition_matrix.npy")
+    print("- results/hmm_sequence_comparison.txt")
 
 
 if __name__ == "__main__":

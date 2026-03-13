@@ -1,0 +1,93 @@
+Sequence Comparison Examples
+============================================================
+
+Sequence 214
+True Labels : E E E E E E E E E E
+Raw Noisy   : A E E A A E A E E E
+HMM Decoded : A A A A A E E E E E
+------------------------------------------------------------
+Sequence 366
+True Labels : I I I I I I I I I I
+Raw Noisy   : I I I I I I I I I V
+HMM Decoded : I I I I I I I I I I
+------------------------------------------------------------
+Sequence 562
+True Labels : M M M M M M M M M M
+Raw Noisy   : M M N N N M M M M M
+HMM Decoded : M M M M M M M M M M
+------------------------------------------------------------
+Sequence 565
+True Labels : M M M M M M M M M M
+Raw Noisy   : M N M N M M M M M M
+HMM Decoded : M M M M M M M M M M
+------------------------------------------------------------
+Sequence 630
+True Labels : O O O O O O O O O O
+Raw Noisy   : O O O O O O O O D O
+HMM Decoded : O O O O O O O O O O
+------------------------------------------------------------
+Sequence 778
+True Labels : R R R R R R R R R R
+Raw Noisy   : R R R R R R U R R R
+HMM Decoded : R R R R R R R R R R
+------------------------------------------------------------
+Sequence 810
+True Labels : S S S S S S S S S S
+Raw Noisy   : S S S X S S S S S S
+HMM Decoded : S S S S S S S S S S
+------------------------------------------------------------
+Sequence 813
+True Labels : S S S S S S S S S S
+Raw Noisy   : S S X S S S S T S X
+HMM Decoded : S S S S S S S S S S
+------------------------------------------------------------
+Sequence 814
+True Labels : S S S S S S S S S S
+Raw Noisy   : S S S S S S S S X S
+HMM Decoded : S S S S S S S S S S
+------------------------------------------------------------
+Sequence 816
+True Labels : S S S S S S S S S S
+Raw Noisy   : S S S S T S S S S S
+HMM Decoded : S S S S S S S S S S
+------------------------------------------------------------
+Sequence 843
+True Labels : S S S S S S S S S S
+Raw Noisy   : S S S S S S Z S S S
+HMM Decoded : S S S S S S S S S S
+------------------------------------------------------------
+Sequence 898
+True Labels : T T T T T T T T T T
+Raw Noisy   : T T T S T T T T T T
+HMM Decoded : T T T T T T T T T T
+------------------------------------------------------------
+Sequence 921
+True Labels : U U U U U U U U U U
+Raw Noisy   : U U U R U U U U U U
+HMM Decoded : U U U U U U U U U U
+------------------------------------------------------------
+Sequence 1037
+True Labels : X X X X X X X X X X
+Raw Noisy   : X X X X X R X X X X
+HMM Decoded : X X X X X X X X X X
+------------------------------------------------------------
+Sequence 1041
+True Labels : X X X X X X X X X X
+Raw Noisy   : X X R R X X X X X R
+HMM Decoded : X X X X X X X X X X
+------------------------------------------------------------
+Sequence 1094
+True Labels : Y Y Y Y Y Y Y Y Y Y
+Raw Noisy   : Y Y Z Y Y Y Y Y Y Y
+HMM Decoded : Y Y Y Y Y Y Y Y Y Y
+------------------------------------------------------------
+Sequence 1096
+True Labels : Y Y Y Y Y Y Y Y Y Y
+Raw Noisy   : Y Y Y Y Y Y Y Y Z Y
+HMM Decoded : Y Y Y Y Y Y Y Y Y Y
+------------------------------------------------------------
+Sequence 1098
+True Labels : Y Y Y Y Y Y Y Y Y Y
+Raw Noisy   : Y Y Y Z Y Y Y Y Y Y
+HMM Decoded : Y Y Y Y Y Y Y Y Y Y
+------------------------------------------------------------
