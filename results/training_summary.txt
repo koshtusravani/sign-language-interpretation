@@ -4,4 +4,4 @@ Epochs: 5
 Batch Size: 32
 Learning Rate: 0.001
 Device: cpu
-Model saved at: models\cnn_baseline.pth
+Model saved at: models/cnn_baseline.pth
