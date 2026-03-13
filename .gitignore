@@ -1,2 +1,9 @@
 data/raw/
 data/processed/
+venv/
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+models/*.pth
+models/*.pt
+.DS_Store
