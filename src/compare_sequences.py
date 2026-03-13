@@ -37,7 +37,6 @@ def main():
             raw_seq = raw_noisy_preds[i]
             hmm_seq = hmm_preds[i]
 
-            # only show interesting examples where HMM differs from raw prediction
             if not np.array_equal(raw_seq, hmm_seq):
                 f.write(f"Sequence {i}\n")
                 f.write(f"True Labels : {' '.join(sequence_to_names(true_seq, class_names))}\n")

@@ -27,7 +27,6 @@ def compare_predictions():
     csv_path = os.path.join(RESULTS_DIR, "prediction_comparison.csv")
     txt_path = os.path.join(RESULTS_DIR, "sample_prediction_comparison.txt")
 
-    # Save full comparison as CSV
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["index", "true_label", "raw_cnn_prediction", "hmm_prediction"])
@@ -40,7 +39,6 @@ def compare_predictions():
                 class_names[hmm_preds[i]]
             ])
 
-    # Save first 50 examples as readable text
     with open(txt_path, "w") as f:
         f.write("Sample Prediction Comparison\n")
         f.write("=" * 50 + "\n\n")
