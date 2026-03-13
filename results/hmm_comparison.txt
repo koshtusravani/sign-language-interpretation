@@ -1,0 +1,2 @@
+Raw CNN accuracy: 99.75%
+HMM-decoded accuracy: 100.00%
