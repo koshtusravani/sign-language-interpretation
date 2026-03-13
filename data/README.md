@@ -1,17 +1,20 @@
 # Dataset
 
-This folder will contain the datasets used for training and evaluation.
+Main dataset: ASL Alphabet dataset from Kaggle.
 
-Due to GitHub file size limitations, the raw dataset will not be uploaded to the repository.
+Source:
+https://www.kaggle.com/datasets/grassknoted/asl-alphabet
 
-Instead, instructions for downloading the dataset will be provided here.
+Dataset summary:
+- 87,000 images
+- 200x200 resolution
+- 29 classes
+- Classes: A-Z, SPACE, DELETE, NOTHING
 
-Planned dataset:
-- ASL Alphabet Dataset
+Local structure:
+- raw/: original downloaded dataset
+- processed/: train/val/test splits
+- metadata/: label information
 
-Structure (planned):
-
-data/
-├── train/
-├── test/
-└── dataset_info.md
+Note:
+The raw dataset is not committed to GitHub because of size limits.
