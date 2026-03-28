@@ -1,97 +1,123 @@
 # Uncertainty-Aware Contextual Recognition of Sign Language Sequences
 
-## Project Description
+## Project Overview
 
-This project explores how deep learning and probabilistic sequence modeling can improve sign language recognition by incorporating contextual information across gesture sequences. A convolutional neural network (CNN) is used to classify individual American Sign Language (ASL) gestures from images, and a Hidden Markov Model (HMM) is used to refine predictions across sequences using probabilistic decoding.
+This project implements a sign language recognition system that combines deep learning (CNN) with probabilistic sequence modelling (HMM) to handle uncertainty in predictions.
 
-The goal of the project is to compare a frame-based CNN classifier with a context-aware probabilistic sequence model and analyze how contextual reasoning can improve recognition performance when predictions are uncertain.
+The system focuses on word-level recognition using video data and demonstrates how probabilistic decoding can improve robustness over frame-level predictions.
 
----
+## Objective
+
+To design an AI-based system that:
+
+* Recognizes sign language gestures from video input
+* Produces probabilistic predictions using a CNN
+* Applies HMM-based decoding to incorporate temporal consistency
+* Handles uncertainty in predictions using probabilistic reasoning
+
+## Methodology
+
+### 1. CNN-based Visual Recognition
+* Model: ResNet18 (PyTorch)
+* Input: Extracted video frames
+* Output: Frame-level probability distribution over sign classes
+
+### 2. Temporal Processing
+* Videos are preprocessed using segment-based frame extraction
+* Only relevant sign segments are used (based on annotations)
+* Reduces noise and improves model performance
+
+### 3. Probabilistic Decoding (HMM)
+* CNN outputs are treated as emission probabilities
+* HMM assumes a single hidden word state per video
+* Uses log-likelihood scoring across frames
+* Produces final word prediction
+
+### 4. Decoding Strategies
+Different decoding strategies were evaluated:
+* Direct CNN prediction (baseline)
+* Average probability aggregation
+* Majority voting
+* HMM-based decoding
+
+## Results
+| Method              | Accuracy   |
+| ------------------- | ---------- |
+| CNN Baseline        | 98.06%     |
+| Average Aggregation | 98.06%     |
+| Majority Vote       | 94.17%     |
+| CNN + HMM           | 98.06%     |
+
+### Key Observations:
+
+* Segment-based preprocessing significantly improved performance
+* Probabilistic aggregation is more reliable than voting
+* Properly formulated HMM matches CNN baseline performance
+* Naive transition-based HMM can degrade performance
 
 ## Project Structure
 
 sign-language-interpretation/
+│
+├── src/
+│   ├── wlasl_organize.py
+│   ├── wlasl_preprocess.py
+│   ├── wlasl_dataloader.py
+│   ├── wlasl_train.py
+│   ├── wlasl_evaluate.py
+│   ├── frame_predictions.py
+│   ├── temporal_aggregation.py
+│   ├── hmm_wordLevel.py
+│
+├── data/              # (ignored in git)
+├── models/            # trained models
+├── results/           # outputs
+└── README.md
 
-src/  
-- preprocess.py 
-- data_loader.py
-- cnn_training.py
-- evaluate.py 
-- generate_predictions.py 
-- build_sequences.py 
-- hmm_decoding.py 
-- compare_predictions.py 
-- compare_sequences.py 
-
-data/  
-- raw/ — Original ASL dataset (not tracked in Git)  
-- processed/ — Processed train/validation/test dataset  
-- metadata/  
-  - class_names.txt — List of gesture classes  
-
-results/ — Evaluation outputs and experiment results  
-
-requirements.txt — Python dependencies  
-.gitignore — Ignored files and directories  
-README.md — Project documentation  
-
----
-
-## How to Run the Pipeline
+## How to Run
 
 ### 1. Install dependencies
-
 pip install -r requirements.txt
 
-### 2. Place the dataset
+### 2. Preprocess Dataset
+python src/wlasl_preprocess.py
 
-Download the ASL alphabet dataset and place it inside:
+### 3. Train CNN Model
+python src/wlasl_train.py
 
-data/raw/
+### 4. Evaluate Model
+python src/wlasl_evaluate.py
 
-dataset link: https://www.kaggle.com/datasets/grassknoted/asl-alphabet
+### 5. Generate Frame Predictions
+python src/frame_predictions.py
 
-### 3. Preprocess the dataset
+### 6. Run HMM Decoding
+python src/hmm_wordLevel.py
 
-python src/preprocess.py
 
-This step creates the processed dataset used for training and evaluation.
+## Live Demo
+* OpenCV-based webcam demo for gesture recognition
+* Demonstrates real-time prediction capability
 
-### 4. Data Loader
+## Notes
 
-The dataset is loaded using data_loader.py.  
-This file is not usually run directly, but it is used internally by the training and evaluation scripts to load the dataset.
+* Dataset files are not included due to size
+* Ensure correct dataset structure before running
+* Results may vary depending on hardware and dataset size
 
-(Optional test)
+## Future Work
+* Multi-word sequence recognition (context modeling)
+* Improved HMM transition learning
+* Integration into a real-time application
+* GUI enhancements
 
-python src/data_loader.py
+## Technologies Used
+* Python
+* PyTorch
+* OpenCV
+* NumPy
+* scikit-learn
 
-### 5. Train the CNN model
+## Conclusion
 
-python src/cnn_training.py
-
-This trains the baseline ResNet18 model and saves training logs.
-
-### 6. Evaluate the model
-
-python src/evaluate.py
-
-This generates evaluation metrics such as accuracy, confusion matrix, and classification report.
-
-### 7. Generate CNN prediction probabilities
-
-python src/generate_predictions.py
-
-### 8. Build sequence experiments
-
-python src/build_sequences.py
-
-### 9. Run HMM decoding
-
-python src/hmm_decoding.py
-
-### 10. Compare predictions
-
-python src/compare_sequences.py
-
-All outputs and evaluation results will be saved in the results/ directory.
+This project demonstrates how combining CNN-based visual recognition with HMM-based probabilistic decoding can create a robust and uncertainty-aware sign language recognition system.
