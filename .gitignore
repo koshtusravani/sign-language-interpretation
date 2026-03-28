@@ -15,3 +15,4 @@ archive/
 results/*.txt
 results/*.csv
 results/*.json
+results/*.pt
