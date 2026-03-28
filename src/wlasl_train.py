@@ -15,8 +15,8 @@ RESULTS_DIR = "results"
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-EPOCHS = 5
-LEARNING_RATE = 0.001
+EPOCHS = 12
+LEARNING_RATE = 0.0001
 MODEL_NAME = "ResNet18_WLASL"
 
 
