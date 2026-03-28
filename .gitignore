@@ -8,3 +8,10 @@ models/*.pth
 models/*.pt
 .DS_Store
 results/*.npy
+data/wlasl/raw_videos/
+data/wlasl/frames/
+data/wlasl/processed/
+archive/
+results/*.txt
+results/*.csv
+results/*.json
