@@ -1,97 +1,186 @@
 # Uncertainty-Aware Contextual Recognition of Sign Language Sequences
 
-## Project Description
+Team: Hema Sravani Koshtu | Dheeraj Royal Galla
 
-This project explores how deep learning and probabilistic sequence modeling can improve sign language recognition by incorporating contextual information across gesture sequences. A convolutional neural network (CNN) is used to classify individual American Sign Language (ASL) gestures from images, and a Hidden Markov Model (HMM) is used to refine predictions across sequences using probabilistic decoding.
-
-The goal of the project is to compare a frame-based CNN classifier with a context-aware probabilistic sequence model and analyze how contextual reasoning can improve recognition performance when predictions are uncertain.
+A sign language recognition system that combines a ResNet18 CNN with a Hidden Markov Model (HMM) for uncertainty-aware contextual sequence decoding on the WLASL dataset.
 
 ---
 
 ## Project Structure
 
-sign-language-interpretation/
-
-src/  
-- preprocess.py 
-- data_loader.py
-- cnn_training.py
-- evaluate.py 
-- generate_predictions.py 
-- build_sequences.py 
-- hmm_decoding.py 
-- compare_predictions.py 
-- compare_sequences.py 
-
-data/  
-- raw/ — Original ASL dataset (not tracked in Git)  
-- processed/ — Processed train/validation/test dataset  
-- metadata/  
-  - class_names.txt — List of gesture classes  
-
-results/ — Evaluation outputs and experiment results  
-
-requirements.txt — Python dependencies  
-.gitignore — Ignored files and directories  
-README.md — Project documentation  
+    sign_language_interpretation/
+    |
+    |-- src/
+    |   |-- wlasl_organize.py          # Organise raw WLASL videos by word class
+    |   |-- wlasl_preprocess.py        # Extract frames from videos using OpenCV
+    |   |-- wlasl_dataloader.py        # PyTorch dataset with train/test split + augmentation
+    |   |-- wlasl_train.py             # Train ResNet18 CNN classifier
+    |   |-- wlasl_evaluate.py          # Evaluate CNN, save per-frame predictions
+    |   |-- utils.py                   # Shared helpers: top-k accuracy, entropy, logging
+    |   |-- temporal_aggregation.py    # Frame aggregation methods (avg, max, vote)
+    |   |-- hmm_wordLevel.py           # Isolated word HMM evaluation
+    |   |-- sequence_builder.py        # Build synthetic multi-word sequences
+    |   |-- hmm_sequence.py            # Multi-word Viterbi HMM decoder
+    |   |-- comparison_runner.py       # Unified frame-based vs HMM comparison
+    |   |-- qualitative_analysis.py    # Entropy correlation + qualitative examples
+    |   |-- ethics_statement.py        # Generate ethics statement
+    |   |-- live_demo_opencv.py        # Live webcam demo — frame-based CNN
+    |   |-- live_demo_hmm.py           # Live webcam demo — CNN + HMM side by side
+    |
+    |-- data/
+    |   |-- wlasl/
+    |       |-- raw_videos/            # Organised raw .mp4 files (git-ignored)
+    |       |-- frames/                # Extracted JPEG frames (git-ignored)
+    |
+    |-- archive/                       # Raw WLASL dataset files (git-ignored)
+    |   |-- WLASL_v0.3.json
+    |   |-- nslt_100.json
+    |   |-- videos/
+    |
+    |-- models/                        # Saved model weights (git-ignored)
+    |   |-- wlasl_word_model.pth       # Final epoch model
+    |   |-- wlasl_word_model_best.pth  # Best checkpoint (used for evaluation)
+    |
+    |-- results/                       # All evaluation outputs
+    |   |-- frame_predictions.pt
+    |   |-- sequences.pt
+    |   |-- comparison_report.txt
+    |   |-- hmm_sequence_results.txt
+    |   |-- qualitative_analysis.txt
+    |   |-- uncertainty_summary.json
+    |   |-- ethics_statement.txt
+    |
+    |-- requirements.txt
+    |-- README.md
 
 ---
 
-## How to Run the Pipeline
+## Setup
 
 ### 1. Install dependencies
 
-pip install -r requirements.txt
+    pip install torch torchvision opencv-python mediapipe scikit-learn pillow numpy
 
-### 2. Place the dataset
+Or install from the requirements file:
 
-Download the ASL alphabet dataset and place it inside:
+    pip install -r requirements.txt
 
-data/raw/
+Note: MediaPipe is only required for the live demo scripts. All other scripts run without it.
 
-dataset link: https://www.kaggle.com/datasets/grassknoted/asl-alphabet
+### 2. Download the WLASL dataset
 
-### 3. Preprocess the dataset
+Download from https://github.com/dxli94/WLASL and place the following in archive/
 
-python src/preprocess.py
+- WLASL_v0.3.json — full metadata
+- nslt_100.json — 100-word subset annotations
+- videos/ — raw .mp4 video files
 
-This step creates the processed dataset used for training and evaluation.
+---
 
-### 4. Data Loader
+## Pipeline — Run in This Order
 
-The dataset is loaded using data_loader.py.  
-This file is not usually run directly, but it is used internally by the training and evaluation scripts to load the dataset.
+### CNN Branch (wlasl-cnn)
 
-(Optional test)
+Step 1 — Organise raw videos by word class
 
-python src/data_loader.py
+    python src/wlasl_organize.py
 
-### 5. Train the CNN model
+Step 2 — Extract frames using OpenCV
 
-python src/cnn_training.py
+    python src/wlasl_preprocess.py
 
-This trains the baseline ResNet18 model and saves training logs.
+Step 3 — Train ResNet18 classifier (40 epochs, approx 5 minutes on CPU)
 
-### 6. Evaluate the model
+    python src/wlasl_train.py
 
-python src/evaluate.py
+Step 4 — Evaluate on test set and save per-frame predictions
 
-This generates evaluation metrics such as accuracy, confusion matrix, and classification report.
+    python src/wlasl_evaluate.py
 
-### 7. Generate CNN prediction probabilities
+### Sequence Branch (wlasl-sequence)
 
-python src/generate_predictions.py
+Step 5 — Build synthetic multi-word sequences
 
-### 8. Build sequence experiments
+    python src/sequence_builder.py
 
-python src/build_sequences.py
+Step 6 — Run multi-word HMM Viterbi decoder
 
-### 9. Run HMM decoding
+    python src/hmm_sequence.py
 
-python src/hmm_decoding.py
+Step 7 — Unified comparison report (frame-based vs HMM)
 
-### 10. Compare predictions
+    python src/comparison_runner.py
 
-python src/compare_sequences.py
+Step 8 — Qualitative uncertainty analysis and entropy correlation
 
-All outputs and evaluation results will be saved in the results/ directory.
+    python src/qualitative_analysis.py
+
+Step 9 — Generate ethics statement
+
+    python src/ethics_statement.py
+
+### Optional
+
+Isolated word HMM analysis — run any time after Step 4
+
+    python src/hmm_wordLevel.py
+
+Live webcam demo — frame-based CNN
+
+    python src/live_demo_opencv.py
+
+Live webcam demo — CNN vs HMM side by side
+
+    python src/live_demo_hmm.py
+
+Note: Steps 5 through 9 require results/frame_predictions.pt produced by Step 4.
+The live demos require a webcam and mediapipe installed.
+
+---
+
+## Key Results
+
+| Method                              | Slot Accuracy | Sequence Accuracy |
+|-------------------------------------|---------------|-------------------|
+| Greedy (no context)                 | 53.67%        | 10.00%            |
+| HMM — uniform transitions           | 54.67%        | 10.00%            |
+| HMM — estimated + avg emission      | 64.00%        | 50.67%            |
+| HMM — estimated + conf emission     | 68.78%        | 52.67%            |
+
+CNN baseline: 56% top-1, 80% top-3, 96% top-5 accuracy on the 10-class test set.
+
+Entropy correlation: HMM-corrected clips have mean entropy 2.001 nats (86.9% of max)
+vs 1.822 nats (79.1%) for already-correct clips, confirming the HMM specifically
+benefits high-uncertainty predictions.
+
+---
+
+## Vocabulary
+
+10 ASL words from the WLASL nslt_100 split:
+
+basketball, birthday, but, city, man, many, orange, play, shirt, who
+
+Selected to include visually confusable sign pairs such as man/who and orange/many,
+deliberately creating high-uncertainty scenarios to test the HMM's disambiguation capability.
+
+---
+
+## Branch Structure
+
+| Branch         | Owner                  | Files |
+|----------------|------------------------|-------|
+| wlasl-cnn      | Hema Sravani Koshtu    | wlasl_organize.py, wlasl_preprocess.py, wlasl_dataloader.py, wlasl_train.py, wlasl_evaluate.py |
+| wlasl-sequence | Dheeraj Royal Galla    | utils.py, temporal_aggregation.py, hmm_wordLevel.py, sequence_builder.py, hmm_sequence.py, comparison_runner.py, qualitative_analysis.py, ethics_statement.py, live_demo_opencv.py, live_demo_hmm.py |
+
+---
+
+## Citation
+
+O. Koller, S. Zargaran, H. Ney, and R. Bowden,
+"Deep Sign: Hybrid CNN-HMM for Continuous Sign Language Recognition,"
+BMVC, 2016.
+
+D. Li, C. Rodriguez, X. Yu, and H. Li,
+"Word-level Deep Sign Language Recognition from Video: A New Large-scale Dataset and Methods Comparison,"
+WACV, 2020.

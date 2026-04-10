@@ -1,29 +1,63 @@
 """
-sequence_builder.py — Build multi-word sequences from isolated sign clips.
+sequence_builder.py — Build multi-word sequences with realistic transition patterns.
 
-The proposal says:
-  "sign sequences will be constructed from isolated samples, allowing
-   systematic comparison between frame-based and context-aware recognition."
+Instead of purely random class sampling (which gives the HMM nothing to learn),
+we define a set of fixed phrase templates. This creates real bigram patterns in
+the transition matrix so the HMM can actually exploit context.
 
-Reads:   results/frame_predictions.pt   (from wlasl_evaluate.py)
+Reads:   results/frame_predictions.pt
 Writes:  results/sequences.pt
+         results/sequence_templates.json
 """
 
 import os
+import json
 import random
 import torch
 
-INPUT_FILE  = "results/frame_predictions.pt"
-OUTPUT_FILE = "results/sequences.pt"
-SEQ_LENGTH  = 3
-NUM_SEQS    = 200
-SEED        = 42
+INPUT_FILE      = "results/frame_predictions.pt"
+OUTPUT_FILE     = "results/sequences.pt"
+TEMPLATES_FILE  = "results/sequence_templates.json"
+SEQ_LENGTH      = 3
+NUM_SEQS        = 300
+SEED            = 42
+
+# ---------------------------------------------------------------------------
+# Phrase templates — word index triplets that appear more than once.
+# These create learnable transition patterns for the HMM.
+# Class indices match sorted order:
+#   0=basketball, 1=birthday, 2=but, 3=city, 4=man,
+#   5=many, 6=orange, 7=play, 8=shirt, 9=who
+#
+# Templates are designed so some bigrams repeat frequently:
+#   (9,4) "who man"  —  (4,7) "man play"  —  (9,5) "who many"
+#   (1,6) "birthday orange"  —  (3,4) "city man"  etc.
+# ---------------------------------------------------------------------------
+
+TEMPLATES = [
+    # "who is that man"
+    [9, 4, 8],   # who, man, shirt
+    [9, 4, 7],   # who, man, play
+    [9, 5, 4],   # who, many, man
+    # "play basketball"
+    [4, 7, 0],   # man, play, basketball
+    [9, 7, 0],   # who, play, basketball
+    [5, 7, 0],   # many, play, basketball
+    # "city birthday"
+    [3, 1, 6],   # city, birthday, orange
+    [3, 4, 2],   # city, man, but
+    [3, 9, 4],   # city, who, man
+    # "orange shirt"
+    [6, 8, 4],   # orange, shirt, man
+    [1, 6, 8],   # birthday, orange, shirt
+    [2, 6, 8],   # but, orange, shirt
+]
+
+# Weight templates so some bigrams appear more frequently
+TEMPLATE_WEIGHTS = [3, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2]
 
 
-def build_sequences(samples, seq_length=SEQ_LENGTH, num_seqs=NUM_SEQS, seed=SEED):
-    """
-    Randomly chain seq_length clips from different classes into synthetic sequences.
-    """
+def build_sequences(samples, num_seqs=NUM_SEQS, seed=SEED):
     random.seed(seed)
     torch.manual_seed(seed)
 
@@ -32,17 +66,36 @@ def build_sequences(samples, seq_length=SEQ_LENGTH, num_seqs=NUM_SEQS, seed=SEED
         lbl = s["label"]
         class_to_samples.setdefault(lbl, []).append(s)
 
-    classes = list(class_to_samples.keys())
-    if len(classes) < seq_length:
-        classes = classes * (seq_length // len(classes) + 1)
+    available_classes = set(class_to_samples.keys())
+
+    # Filter templates to only use classes present in the test set
+    valid_templates = [
+        t for t in TEMPLATES
+        if all(c in available_classes for c in t)
+    ]
+
+    if not valid_templates:
+        # Fallback: random sampling if no templates match
+        print("Warning: no valid templates found, falling back to random sampling.")
+        classes = list(available_classes)
+        valid_templates = [
+            random.sample(classes, SEQ_LENGTH)
+            for _ in range(len(TEMPLATES))
+        ]
+        weights = None
+    else:
+        weights = TEMPLATE_WEIGHTS[:len(valid_templates)]
 
     sequences = []
+    template_usage = []
+
     for _ in range(num_seqs):
-        chosen_classes = random.sample(classes, seq_length)
+        template = random.choices(valid_templates, weights=weights, k=1)[0]
+        template_usage.append(template)
 
         clip_logits = []
         clip_labels = []
-        for c in chosen_classes:
+        for c in template:
             clip = random.choice(class_to_samples[c])
             clip_logits.append(clip["logits"])
             clip_labels.append(clip["label"])
@@ -53,25 +106,45 @@ def build_sequences(samples, seq_length=SEQ_LENGTH, num_seqs=NUM_SEQS, seed=SEED
             "seq_label":   clip_labels,
         })
 
-    return sequences
+    return sequences, template_usage
 
 
 def main():
     if not os.path.exists(INPUT_FILE):
         raise FileNotFoundError(
             f"Missing {INPUT_FILE}.\n"
-            "Run wlasl_evaluate.py first to generate per-frame predictions."
+            "Run wlasl_evaluate.py first."
         )
 
     samples = torch.load(INPUT_FILE)
     print(f"Loaded {len(samples)} clip samples.")
 
-    sequences = build_sequences(samples)
-    print(f"Built {len(sequences)} synthetic sequences of length {SEQ_LENGTH}.")
+    sequences, template_usage = build_sequences(samples)
+    print(f"Built {len(sequences)} sequences of length {SEQ_LENGTH}.")
+
+    # Report bigram coverage
+    from collections import Counter
+    bigram_counts = Counter()
+    for t in template_usage:
+        for i in range(len(t) - 1):
+            bigram_counts[(t[i], t[i+1])] += 1
+
+    print(f"\nTop bigrams in sequences (gives HMM something to learn):")
+    for (a, b), cnt in bigram_counts.most_common(5):
+        print(f"  class {a} → class {b} : {cnt} times")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE) or ".", exist_ok=True)
     torch.save(sequences, OUTPUT_FILE)
-    print(f"Saved → {OUTPUT_FILE}")
+    print(f"\nSaved → {OUTPUT_FILE}")
+
+    # Save template info for reporting
+    with open(TEMPLATES_FILE, "w") as f:
+        json.dump({
+            "templates": TEMPLATES,
+            "template_weights": TEMPLATE_WEIGHTS,
+            "bigram_counts": {f"{a}->{b}": cnt for (a,b), cnt in bigram_counts.items()},
+        }, f, indent=4)
+    print(f"Saved → {TEMPLATES_FILE}")
 
     seq = sequences[0]
     print(f"\nSample sequence 0:")
