@@ -1,4 +1,6 @@
 import os
+import random
+from collections import defaultdict
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -38,11 +40,10 @@ class WLASLDataset(Dataset):
         while len(frames) < FRAMES_PER_VIDEO:
             frames.append(torch.zeros_like(frames[0]))
 
-        return torch.stack(frames), label   # (T, C, H, W), int
+        return torch.stack(frames), label
 
 
 def _collect_samples(frame_dir):
-    """Walk frame_dir and return (samples, word_classes)."""
     word_classes = sorted([
         d for d in os.listdir(frame_dir)
         if os.path.isdir(os.path.join(frame_dir, d))
@@ -61,14 +62,7 @@ def _collect_samples(frame_dir):
 
 
 def _split_samples(samples, train_ratio=TRAIN_RATIO, seed=SEED):
-    """
-    Stratified split: for each class keep train_ratio for training.
-    Returns (train_samples, test_samples).
-    """
-    import random
     rng = random.Random(seed)
-
-    from collections import defaultdict
     by_class = defaultdict(list)
     for s in samples:
         by_class[s[1]].append(s)
@@ -84,7 +78,27 @@ def _split_samples(samples, train_ratio=TRAIN_RATIO, seed=SEED):
     return train, test
 
 
-def _default_transform():
+def _train_transform():
+    return transforms.Compose([
+        transforms.Resize((160, 160)),
+        transforms.RandomCrop((128, 128)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ColorJitter(
+            brightness=0.3,
+            contrast=0.3,
+            saturation=0.2,
+            hue=0.1,
+        ),
+        transforms.RandomRotation(degrees=10),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ])
+
+
+def _test_transform():
     return transforms.Compose([
         transforms.Resize((128, 128)),
         transforms.ToTensor(),
@@ -98,29 +112,31 @@ def _default_transform():
 def get_wlasl_dataloader(batch_size=4, split="train", frame_dir=FRAME_DIR):
     """
     Args:
-        batch_size: int
-        split:      "train" | "test" | "all"
-                    Use "train" for wlasl_train.py
-                    Use "test"  for wlasl_evaluate.py
-                    Use "all"   only for quick debugging
-
-    Returns:
-        dataloader, word_classes
+        split: "train" | "test" | "all"
     """
     samples, word_classes = _collect_samples(frame_dir)
     train_samples, test_samples = _split_samples(samples)
 
     if split == "train":
-        chosen = train_samples
+        chosen    = train_samples
+        transform = _train_transform()
     elif split == "test":
-        chosen = test_samples
+        chosen    = test_samples
+        transform = _test_transform()
     elif split == "all":
-        chosen = samples
+        chosen    = samples
+        transform = _test_transform()
     else:
         raise ValueError(f"split must be 'train', 'test', or 'all', got '{split}'")
 
-    dataset    = WLASLDataset(chosen, word_classes, transform=_default_transform())
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=(split == "train"))
+    dataset    = WLASLDataset(chosen, word_classes, transform=transform)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=(split == "train"),
+        num_workers=0,
+        pin_memory=torch.cuda.is_available(),
+    )
 
     return dataloader, word_classes
 
@@ -130,8 +146,8 @@ if __name__ == "__main__":
     test_loader,  _       = get_wlasl_dataloader(split="test")
 
     print(f"Classes ({len(classes)}): {classes}")
-    print(f"Train batches: {len(train_loader)}")
-    print(f"Test  batches: {len(test_loader)}")
+    print(f"Train batches : {len(train_loader)}")
+    print(f"Test  batches : {len(test_loader)}")
 
     for frames, labels in train_loader:
         print("Train batch — frames:", frames.shape, "labels:", labels.shape)
