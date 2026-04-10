@@ -1,12 +1,5 @@
 """
 wlasl_evaluate.py
-
-Key additions vs original:
-  - forward_per_frame()  → saves results/frame_predictions.pt
-                           (required by your partner's sequence branch)
-  - top-3 and top-5 accuracy
-  - per-sample entropy stats
-  - uncertainty_summary.json
 """
 
 import os
@@ -34,12 +27,24 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 FRAME_PREDICTIONS_FILE = os.path.join(RESULTS_DIR, "frame_predictions.pt")
 
+BEST_MODEL_PATH  = os.path.join(MODELS_DIR, "wlasl_word_model_best.pth")
+FINAL_MODEL_PATH = os.path.join(MODELS_DIR, "wlasl_word_model.pth")
+
 
 class VideoWordClassifier(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
         backbone = models.resnet18(weights=None)
+
+        for param in backbone.parameters():
+            param.requires_grad = False
+        for param in backbone.layer3.parameters():
+            param.requires_grad = True
+        for param in backbone.layer4.parameters():
+            param.requires_grad = True
+
         self.feature_extractor = nn.Sequential(*list(backbone.children())[:-1])
+        self.dropout    = nn.Dropout(p=0.5)
         self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
@@ -47,10 +52,10 @@ class VideoWordClassifier(nn.Module):
         x        = x.view(B * T, C, H, W)
         features = self.feature_extractor(x)
         features = features.view(B, T, 512)
-        return self.classifier(features.mean(dim=1))
+        video_features = self.dropout(features.mean(dim=1))
+        return self.classifier(video_features)
 
     def forward_per_frame(self, x):
-        """Return per-frame logits: (B, T, num_classes)."""
         B, T, C, H, W = x.shape
         x        = x.view(B * T, C, H, W)
         features = self.feature_extractor(x).view(B * T, 512)
@@ -59,19 +64,20 @@ class VideoWordClassifier(nn.Module):
 
 
 def main():
-    dataloader, classes = get_wlasl_dataloader(batch_size=4,split="test")
+    dataloader, classes = get_wlasl_dataloader(batch_size=4, split="test")
     num_classes = len(classes)
 
     model = VideoWordClassifier(num_classes).to(device)
-    model.load_state_dict(
-        torch.load(os.path.join(MODELS_DIR, "wlasl_word_model.pth"), map_location=device)
-    )
-    model.eval()
 
-    all_preds       = []
-    all_labels      = []
-    all_logits_list = []
-    frame_sequences = []
+    model_path = BEST_MODEL_PATH if os.path.exists(BEST_MODEL_PATH) else FINAL_MODEL_PATH
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    print(f"Loaded model from: {model_path}")
+
+    all_preds        = []
+    all_labels       = []
+    all_logits_list  = []
+    frame_sequences  = []
     sample_entropies = []
 
     with torch.no_grad():
@@ -107,7 +113,9 @@ def main():
     top5 = top_k_accuracy(all_probs, label_tensor, k=5)
 
     cm     = confusion_matrix(all_labels, all_preds)
-    report = classification_report(all_labels, all_preds, target_names=classes, zero_division=0)
+    report = classification_report(
+        all_labels, all_preds, target_names=classes, zero_division=0
+    )
 
     mean_entropy = sum(sample_entropies) / len(sample_entropies)
     max_entropy  = max(sample_entropies)
@@ -115,14 +123,14 @@ def main():
 
     print_results_table(
         {
-            "Top-1 Accuracy":     top1,
-            "Top-3 Accuracy":     top3,
-            "Top-5 Accuracy":     top5,
-            "Mean Frame Entropy": mean_entropy,
-            "Max Frame Entropy":  max_entropy,
-            "Min Frame Entropy":  min_entropy,
-            "Num Samples":        len(all_labels),
-            "Num Classes":        num_classes,
+            "Top-1 Accuracy":         top1,
+            "Top-3 Accuracy":         top3,
+            "Top-5 Accuracy":         top5,
+            "Mean Per-Frame Entropy": mean_entropy,
+            "Max Per-Frame Entropy":  max_entropy,
+            "Min Per-Frame Entropy":  min_entropy,
+            "Num Samples":            len(all_labels),
+            "Num Classes":            num_classes,
         },
         title="WLASL Evaluation",
     )
@@ -142,16 +150,15 @@ def main():
 
     save_json(
         {
-            "mean_frame_entropy": mean_entropy,
-            "max_frame_entropy":  max_entropy,
-            "min_frame_entropy":  min_entropy,
+            "mean_per_frame_entropy": mean_entropy,
+            "max_per_frame_entropy":  max_entropy,
+            "min_per_frame_entropy":  min_entropy,
             "per_sample_mean_entropies": sample_entropies,
         },
         os.path.join(RESULTS_DIR, "uncertainty_summary.json"),
     )
 
     save_frame_predictions(frame_sequences, FRAME_PREDICTIONS_FILE)
-
     print("\nAll evaluation files saved to results/")
 
 
