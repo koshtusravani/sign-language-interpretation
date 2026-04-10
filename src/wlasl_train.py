@@ -4,70 +4,88 @@ import csv
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torchvision import models
 from wlasl_dataloader import get_wlasl_dataloader
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-MODELS_DIR = "models"
+MODELS_DIR  = "models"
 RESULTS_DIR = "results"
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-EPOCHS = 12
-LEARNING_RATE = 0.0001
-MODEL_NAME = "ResNet18_WLASL"
+EPOCHS        = 40
+LEARNING_RATE = 0.0005
+MODEL_NAME    = "ResNet18_WLASL"
 
 
 class VideoWordClassifier(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-
         backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-        self.feature_extractor = nn.Sequential(*list(backbone.children())[:-1])  # remove fc
+
+        # Unfreeze last two residual blocks + classifier for fine-tuning
+        # Freeze everything first
+        for param in backbone.parameters():
+            param.requires_grad = False
+
+        # Unfreeze layer3, layer4, and fc
+        for param in backbone.layer3.parameters():
+            param.requires_grad = True
+        for param in backbone.layer4.parameters():
+            param.requires_grad = True
+
+        self.feature_extractor = nn.Sequential(*list(backbone.children())[:-1])
+        self.dropout    = nn.Dropout(p=0.5)
         self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
-        # x shape: (B, T, C, H, W)
         B, T, C, H, W = x.shape
+        x        = x.view(B * T, C, H, W)
+        features = self.feature_extractor(x)       # (B*T, 512, 1, 1)
+        features = features.view(B, T, 512)        # (B, T, 512)
 
-        x = x.view(B * T, C, H, W)
-        features = self.feature_extractor(x)         # (B*T, 512, 1, 1)
-        features = features.view(B, T, 512)          # (B, T, 512)
-
-        video_features = features.mean(dim=1)        # average across frames
-        outputs = self.classifier(video_features)    # (B, num_classes)
-
-        return outputs
+        video_features = features.mean(dim=1)      # average across frames
+        video_features = self.dropout(video_features)
+        return self.classifier(video_features)     # (B, num_classes)
 
 
 def main():
     dataloader, classes = get_wlasl_dataloader(batch_size=4, split="train")
     num_classes = len(classes)
 
-    model = VideoWordClassifier(num_classes).to(device)
+    model     = VideoWordClassifier(num_classes).to(device)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    optimizer = optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LEARNING_RATE,
+        weight_decay=1e-4,
+    )
+    scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
-    # save config
     config = {
-        "model": MODEL_NAME,
-        "epochs": EPOCHS,
-        "learning_rate": LEARNING_RATE,
-        "num_classes": num_classes,
-        "classes": classes,
-        "device": str(device)
+        "model":          MODEL_NAME,
+        "epochs":         EPOCHS,
+        "learning_rate":  LEARNING_RATE,
+        "num_classes":    num_classes,
+        "classes":        classes,
+        "device":         str(device),
+        "dropout":        0.5,
+        "label_smoothing": 0.1,
+        "scheduler":      "CosineAnnealingLR",
+        "unfrozen_layers": ["layer3", "layer4", "classifier"],
     }
-
     with open(os.path.join(RESULTS_DIR, "wlasl_training_config.json"), "w") as f:
         json.dump(config, f, indent=4)
 
     log_path = os.path.join(RESULTS_DIR, "wlasl_training_log.csv")
+    best_loss = float("inf")
+
     with open(log_path, "w", newline="") as log_file:
         writer = csv.writer(log_file)
-        writer.writerow(["epoch", "train_loss"])
+        writer.writerow(["epoch", "train_loss", "lr"])
 
         for epoch in range(EPOCHS):
             model.train()
@@ -79,15 +97,27 @@ def main():
 
                 optimizer.zero_grad()
                 outputs = model(frames)
-                loss = criterion(outputs, labels)
+                loss    = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
 
-            print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {running_loss:.4f}")
-            writer.writerow([epoch + 1, running_loss])
+            scheduler.step()
+            current_lr = scheduler.get_last_lr()[0]
 
+            print(f"Epoch {epoch + 1:>2}/{EPOCHS}  Loss: {running_loss:.4f}  LR: {current_lr:.6f}")
+            writer.writerow([epoch + 1, running_loss, current_lr])
+
+            # Save best model
+            if running_loss < best_loss:
+                best_loss = running_loss
+                torch.save(
+                    model.state_dict(),
+                    os.path.join(MODELS_DIR, "wlasl_word_model_best.pth"),
+                )
+
+    # Also save final model
     model_path = os.path.join(MODELS_DIR, "wlasl_word_model.pth")
     torch.save(model.state_dict(), model_path)
 
@@ -95,11 +125,12 @@ def main():
         f.write("WLASL Word-Level Training Completed\n\n")
         f.write(f"Model: {MODEL_NAME}\n")
         f.write(f"Epochs: {EPOCHS}\n")
+        f.write(f"Best Loss: {best_loss:.4f}\n")
         f.write(f"Learning Rate: {LEARNING_RATE}\n")
         f.write(f"Classes: {classes}\n")
         f.write(f"Model saved at: {model_path}\n")
 
-    print("\nTraining complete!")
+    print(f"\nTraining complete! Best loss: {best_loss:.4f}")
     print(f"Model saved to {model_path}")
 
 
