@@ -43,7 +43,7 @@ class VideoWordClassifier(nn.Module):
 
 
 def main():
-    dataloader, classes = get_wlasl_dataloader(batch_size=4)
+    dataloader, classes = get_wlasl_dataloader(batch_size=4, split="train")
     num_classes = len(classes)
 
     model = VideoWordClassifier(num_classes).to(device)
