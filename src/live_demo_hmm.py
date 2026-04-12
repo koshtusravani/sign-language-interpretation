@@ -1,17 +1,3 @@
-"""
-live_demo_hmm.py — Real-time sign recognition with HMM sequence decoding.
-
-Context-aware demo. Shows side-by-side:
-  - Raw CNN prediction (frame-based, no context)
-  - HMM Viterbi decoded prediction (context-aware)
-  - Per-frame entropy (uncertainty before context)
-  - Top-3 predictions
-
-The transition matrix is loaded from results/sequences.pt
-(estimated from your training sequences).
-Press 'q' to quit.
-"""
-
 import os
 import cv2
 import math
@@ -32,11 +18,6 @@ BUFFER_SIZE          = 15
 CONFIDENCE_THRESHOLD = 0.45
 PADDING              = 40
 TOP_K                = 3
-
-
-# ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
 
 class VideoWordClassifier(nn.Module):
     def __init__(self, num_classes):
@@ -76,32 +57,21 @@ def prediction_entropy(probs_np):
     probs = np.clip(probs_np, 1e-12, 1.0)
     return float(-np.sum(probs * np.log(probs)))
 
-
-# ---------------------------------------------------------------------------
-# Viterbi (numpy — runs every frame on the rolling buffer)
-# ---------------------------------------------------------------------------
-
 def viterbi_decode_np(emission_buffer, log_trans_np):
-    """
-    emission_buffer: list of (num_classes,) numpy arrays — softmax probs
-    log_trans_np:    (num_classes, num_classes) numpy array
-
-    Returns: decoded class index for the most recent frame
-    """
     T   = len(emission_buffer)
     N   = emission_buffer[0].shape[0]
     eps = 1e-12
 
-    log_em = np.log(np.clip(np.array(emission_buffer), eps, 1.0))  # (T, N)
+    log_em = np.log(np.clip(np.array(emission_buffer), eps, 1.0))  
 
     dp      = np.zeros((T, N))
     backptr = np.zeros((T, N), dtype=np.int32)
 
-    dp[0] = log_em[0] - math.log(N)   # uniform prior
+    dp[0] = log_em[0] - math.log(N)   
 
     for t in range(1, T):
-        scores         = dp[t - 1][:, None] + log_trans_np   # (N, N)
-        best_prev      = np.argmax(scores, axis=0)            # (N,)
+        scores         = dp[t - 1][:, None] + log_trans_np   
+        best_prev      = np.argmax(scores, axis=0)           
         dp[t]          = scores[best_prev, np.arange(N)] + log_em[t]
         backptr[t]     = best_prev
 
@@ -113,17 +83,15 @@ def viterbi_decode_np(emission_buffer, log_trans_np):
         path.append(best_last)
 
     path.reverse()
-    return path[-1]   # return prediction for most recent frame
+    return path[-1]   
 
 
 def main():
-    # ── Classes ──────────────────────────────────────────────────────────
     _, classes = get_wlasl_dataloader(split="test")
     num_classes = len(classes)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ── Model ─────────────────────────────────────────────────────────────
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(
             f"Missing model: {MODEL_PATH}\nRun wlasl_train.py first."
@@ -133,14 +101,12 @@ def main():
     model.eval()
     print(f"Loaded model — {num_classes} classes")
 
-    # ── Transition matrix ─────────────────────────────────────────────────
     if os.path.exists(SEQUENCES_PATH):
         sequences  = torch.load(SEQUENCES_PATH)
         log_trans  = estimate_transition_from_sequences(sequences, num_classes)
         log_trans_np = log_trans.numpy()
         print("Loaded estimated transition matrix from sequences.pt")
     else:
-        # Uniform fallback
         off = (1.0 - 0.1) / max(num_classes - 1, 1)
         trans = np.full((num_classes, num_classes), off)
         np.fill_diagonal(trans, 0.1)
@@ -149,7 +115,6 @@ def main():
 
     transform = get_transform()
 
-    # ── MediaPipe ─────────────────────────────────────────────────────────
     try:
         import mediapipe as mp
         mp_hands = mp.solutions.hands
@@ -226,7 +191,6 @@ def main():
             entropy_val = prediction_entropy(probs)
             raw_label   = classes[pred_idx]
 
-            # Add to buffer — use uniform if below confidence threshold
             if confidence >= CONFIDENCE_THRESHOLD:
                 emission_buffer.append(probs)
             else:
@@ -234,7 +198,6 @@ def main():
                     np.ones(num_classes, dtype=np.float64) / num_classes
                 )
 
-            # HMM decode over buffer
             if len(emission_buffer) >= 2:
                 hmm_idx   = viterbi_decode_np(list(emission_buffer), log_trans_np)
                 hmm_label = classes[hmm_idx]
@@ -254,22 +217,18 @@ def main():
             entropy_val = 0.0
             topk_text   = []
 
-        # ── HUD ─────────────────────────────────────────────────────────
         cv2.rectangle(display, (0, 0), (w, 150), (20, 20, 20), -1)
 
-        # Left: raw CNN
         cv2.putText(display, "CNN (no context):",
                     (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (150, 150, 150), 1)
         cv2.putText(display, raw_label,
                     (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 2)
 
-        # Right: HMM
         cv2.putText(display, "HMM (context-aware):",
                     (w // 2, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (150, 150, 150), 1)
         cv2.putText(display, hmm_label,
                     (w // 2, 65), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 0), 2)
 
-        # Entropy bar
         max_entropy  = math.log(num_classes)
         entropy_norm = min(entropy_val / max_entropy, 1.0)
         bar_w        = int((w - 40) * entropy_norm)
@@ -283,7 +242,6 @@ def main():
         cv2.putText(display, f"Entropy: {entropy_val:.3f} / {max_entropy:.3f}",
                     (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (200, 200, 200), 1)
 
-        # Top-k
         y0 = 170
         for line in topk_text:
             cv2.putText(display, line, (20, y0),

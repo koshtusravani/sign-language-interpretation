@@ -1,18 +1,3 @@
-"""
-qualitative_analysis.py — Qualitative evaluation of uncertainty resolution.
-
-The proposal says: "qualitative evaluation to show how uncertainty is
-resolved with contextual inference."
-
-This script finds real examples from the test set where:
-  1. The CNN was uncertain (high entropy) but the HMM corrected it
-  2. The CNN was confident and the HMM agreed
-  3. The CNN was wrong and the HMM fixed it
-
-Reads:   results/sequences.pt
-Writes:  results/qualitative_analysis.txt
-"""
-
 import os
 import torch
 import torch.nn.functional as F
@@ -57,10 +42,10 @@ def main():
     max_ent         = max_entropy(num_classes)
 
     cases = {
-        "hmm_corrected":   [],   # CNN wrong, HMM right
-        "both_correct":    [],   # CNN right, HMM right
-        "both_wrong":      [],   # CNN wrong, HMM wrong
-        "hmm_degraded":    [],   # CNN right, HMM wrong
+        "hmm_corrected":   [],   
+        "both_correct":    [],   
+        "both_wrong":      [],   
+        "hmm_degraded":    [],   
     }
 
     for seq in sequences:
@@ -105,8 +90,6 @@ def main():
             elif cnn_correct and not hmm_correct:
                 cases["hmm_degraded"].append(example)
 
-    # Sort hmm_corrected by highest entropy (most uncertain cases first)
-    # Deduplicate by clip fingerprint
     for key in cases:
         seen = set()
         unique = []
@@ -125,21 +108,18 @@ def main():
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("QUALITATIVE ANALYSIS — UNCERTAINTY RESOLUTION BY CONTEXT\n")
-        f.write("=" * 65 + "\n\n")
         f.write(f"Max possible entropy (uniform over {num_classes} classes): "
                 f"{max_ent:.4f}\n\n")
 
-        # Case 1: HMM corrected uncertain CNN predictions
         f.write("CASE 1 — HMM CORRECTED HIGH-ENTROPY CNN PREDICTIONS\n")
         f.write("These are the most important examples: the CNN was uncertain\n")
         f.write("or wrong, and the HMM used context to find the right answer.\n")
-        f.write("-" * 65 + "\n")
 
         shown = 0
         for ex in cases["hmm_corrected"][:NUM_EXAMPLES]:
             f.write(f"\nTrue label   : {ex['true_name']} (class {ex['true']})\n")
-            f.write(f"CNN predicted: {ex['cnn_name']} ✗\n")
-            f.write(f"HMM decoded  : {ex['hmm_name']} ✓\n")
+            f.write(f"CNN predicted: {ex['cnn_name']} \n")
+            f.write(f"HMM decoded  : {ex['hmm_name']} \n")
             f.write(f"Entropy      : {ex['entropy']:.4f} / {max_ent:.4f} "
                     f"({ex['ent_norm'] * 100:.1f}% of max)\n")
             f.write(f"Confidence   : {ex['confidence'] * 100:.1f}%\n")
@@ -148,33 +128,27 @@ def main():
         if shown == 0:
             f.write("No examples found where HMM corrected CNN errors.\n")
 
-        # Case 2: Both correct — high confidence examples
         f.write(f"\n\nCASE 2 — BOTH CORRECT (CNN + HMM AGREE)\n")
         f.write("High-confidence examples where context reinforces the CNN.\n")
-        f.write("-" * 65 + "\n")
 
         for ex in cases["both_correct"][:5]:
             f.write(f"\nTrue label   : {ex['true_name']}\n")
-            f.write(f"CNN predicted: {ex['cnn_name']} ✓\n")
-            f.write(f"HMM decoded  : {ex['hmm_name']} ✓\n")
+            f.write(f"CNN predicted: {ex['cnn_name']} \n")
+            f.write(f"HMM decoded  : {ex['hmm_name']} \n")
             f.write(f"Entropy      : {ex['entropy']:.4f} ({ex['ent_norm'] * 100:.1f}% of max)\n")
             f.write(f"Confidence   : {ex['confidence'] * 100:.1f}%\n")
 
-        # Case 3: HMM degraded correct CNN
         f.write(f"\n\nCASE 3 — HMM DEGRADED CORRECT CNN PREDICTIONS\n")
         f.write("Cases where context hurt accuracy — honest reporting.\n")
-        f.write("-" * 65 + "\n")
 
         for ex in cases["hmm_degraded"][:5]:
             f.write(f"\nTrue label   : {ex['true_name']}\n")
-            f.write(f"CNN predicted: {ex['cnn_name']} ✓\n")
-            f.write(f"HMM decoded  : {ex['hmm_name']} ✗\n")
+            f.write(f"CNN predicted: {ex['cnn_name']} \n")
+            f.write(f"HMM decoded  : {ex['hmm_name']} \n")
             f.write(f"Entropy      : {ex['entropy']:.4f} ({ex['ent_norm'] * 100:.1f}% of max)\n")
             f.write(f"Confidence   : {ex['confidence'] * 100:.1f}%\n")
 
-        # Summary counts
-        f.write(f"\n\nSUMMARY\n")
-        f.write("=" * 65 + "\n")
+        f.write(f"\n\nSUMMARY:\n")
         f.write(f"HMM corrected CNN errors  : {len(cases['hmm_corrected'])}\n")
         f.write(f"Both correct              : {len(cases['both_correct'])}\n")
         f.write(f"Both wrong                : {len(cases['both_wrong'])}\n")
@@ -182,7 +156,6 @@ def main():
         total = sum(len(v) for v in cases.values())
         f.write(f"Total word slots          : {total}\n")
 
-    # ── Quantitative entropy correlation ─────────────────────────────────
     corrected_entropies = [ex["entropy"] for ex in cases["hmm_corrected"]]
     both_correct_ents   = [ex["entropy"] for ex in cases["both_correct"]]
     degraded_entropies  = [ex["entropy"] for ex in cases["hmm_degraded"]]
@@ -197,8 +170,8 @@ def main():
     avg_ent_both_wrong = mean(both_wrong_ents)
 
     correlation_section = f"""
-QUANTITATIVE ENTROPY CORRELATION
-=================================================================
+QUANTITATIVE ENTROPY CORRELATION:
+
 Does the HMM help MORE when CNN entropy is HIGH?
 
   Outcome                    | Count | Mean Entropy | % of Max
@@ -213,7 +186,7 @@ Does the HMM help MORE when CNN entropy is HIGH?
   Difference              : {avg_ent_corrected - avg_ent_correct:+.4f}
 
   {"CONFIRMED: HMM corrects higher-entropy predictions than it reinforces." if avg_ent_corrected > avg_ent_correct else "NOT confirmed: further investigation needed."}
-=================================================================
+
 """
 
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:

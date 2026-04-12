@@ -18,14 +18,12 @@ class VideoWordClassifier(nn.Module):
         self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
-        # x: (B, T, C, H, W)
         B, T, C, H, W = x.shape
         x = x.view(B * T, C, H, W)
-        features = self.feature_extractor(x)              # (B*T, 512, 1, 1)
-        features = features.view(B, T, 512)              # (B, T, 512)
+        features = self.feature_extractor(x)              
+        features = features.view(B, T, 512)              
 
-        # frame-level logits
-        outputs = self.classifier(features)              # (B, T, num_classes)
+        outputs = self.classifier(features)              
         return outputs
 
 
@@ -42,8 +40,8 @@ def main():
         for frames, label in dataloader:
             frames = frames.to(device)
 
-            logits = model(frames)           # (1, T, num_classes)
-            logits = logits.squeeze(0).cpu() # (T, num_classes)
+            logits = model(frames)          
+            logits = logits.squeeze(0).cpu() 
 
             all_sequences.append({
                 "logits": logits,

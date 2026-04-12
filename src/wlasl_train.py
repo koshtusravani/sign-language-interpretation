@@ -26,12 +26,9 @@ class VideoWordClassifier(nn.Module):
         super().__init__()
         backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
 
-        # Unfreeze last two residual blocks + classifier for fine-tuning
-        # Freeze everything first
         for param in backbone.parameters():
             param.requires_grad = False
 
-        # Unfreeze layer3, layer4, and fc
         for param in backbone.layer3.parameters():
             param.requires_grad = True
         for param in backbone.layer4.parameters():
@@ -44,12 +41,12 @@ class VideoWordClassifier(nn.Module):
     def forward(self, x):
         B, T, C, H, W = x.shape
         x        = x.view(B * T, C, H, W)
-        features = self.feature_extractor(x)       # (B*T, 512, 1, 1)
-        features = features.view(B, T, 512)        # (B, T, 512)
+        features = self.feature_extractor(x)      
+        features = features.view(B, T, 512)       
 
-        video_features = features.mean(dim=1)      # average across frames
+        video_features = features.mean(dim=1)     
         video_features = self.dropout(video_features)
-        return self.classifier(video_features)     # (B, num_classes)
+        return self.classifier(video_features)    
 
 
 def main():
@@ -109,7 +106,6 @@ def main():
             print(f"Epoch {epoch + 1:>2}/{EPOCHS}  Loss: {running_loss:.4f}  LR: {current_lr:.6f}")
             writer.writerow([epoch + 1, running_loss, current_lr])
 
-            # Save best model
             if running_loss < best_loss:
                 best_loss = running_loss
                 torch.save(
@@ -117,7 +113,6 @@ def main():
                     os.path.join(MODELS_DIR, "wlasl_word_model_best.pth"),
                 )
 
-    # Also save final model
     model_path = os.path.join(MODELS_DIR, "wlasl_word_model.pth")
     torch.save(model.state_dict(), model_path)
 

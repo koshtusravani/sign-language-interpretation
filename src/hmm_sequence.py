@@ -1,7 +1,3 @@
-"""
-hmm_sequence.py — Multi-word HMM sequence decoder with Viterbi.
-"""
-
 import os
 import math
 import torch

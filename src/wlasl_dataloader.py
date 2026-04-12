@@ -110,10 +110,6 @@ def _test_transform():
 
 
 def get_wlasl_dataloader(batch_size=4, split="train", frame_dir=FRAME_DIR):
-    """
-    Args:
-        split: "train" | "test" | "all"
-    """
     samples, word_classes = _collect_samples(frame_dir)
     train_samples, test_samples = _split_samples(samples)
 

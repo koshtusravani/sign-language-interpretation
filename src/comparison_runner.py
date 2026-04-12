@@ -1,7 +1,3 @@
-"""
-comparison_runner.py — Unified frame-based vs context-aware comparison.
-"""
-
 import os
 import torch
 import torch.nn.functional as F

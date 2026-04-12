@@ -1,15 +1,3 @@
-"""
-sequence_builder.py — Build multi-word sequences with realistic transition patterns.
-
-Instead of purely random class sampling (which gives the HMM nothing to learn),
-we define a set of fixed phrase templates. This creates real bigram patterns in
-the transition matrix so the HMM can actually exploit context.
-
-Reads:   results/frame_predictions.pt
-Writes:  results/sequences.pt
-         results/sequence_templates.json
-"""
-
 import os
 import json
 import random
@@ -22,38 +10,25 @@ SEQ_LENGTH      = 3
 NUM_SEQS        = 300
 SEED            = 42
 
-# ---------------------------------------------------------------------------
-# Phrase templates — word index triplets that appear more than once.
-# These create learnable transition patterns for the HMM.
-# Class indices match sorted order:
-#   0=basketball, 1=birthday, 2=but, 3=city, 4=man,
-#   5=many, 6=orange, 7=play, 8=shirt, 9=who
-#
-# Templates are designed so some bigrams repeat frequently:
-#   (9,4) "who man"  —  (4,7) "man play"  —  (9,5) "who many"
-#   (1,6) "birthday orange"  —  (3,4) "city man"  etc.
-# ---------------------------------------------------------------------------
-
 TEMPLATES = [
-    # "who is that man"
-    [9, 4, 8],   # who, man, shirt
-    [9, 4, 7],   # who, man, play
-    [9, 5, 4],   # who, many, man
-    # "play basketball"
-    [4, 7, 0],   # man, play, basketball
-    [9, 7, 0],   # who, play, basketball
-    [5, 7, 0],   # many, play, basketball
-    # "city birthday"
-    [3, 1, 6],   # city, birthday, orange
-    [3, 4, 2],   # city, man, but
-    [3, 9, 4],   # city, who, man
-    # "orange shirt"
-    [6, 8, 4],   # orange, shirt, man
-    [1, 6, 8],   # birthday, orange, shirt
-    [2, 6, 8],   # but, orange, shirt
+    #"who is that man"
+    [9, 4, 8],   #who, man, shirt
+    [9, 4, 7],   #who, man, play
+    [9, 5, 4],   #who, many, man
+    #"play basketball"
+    [4, 7, 0],   #man, play, basketball
+    [9, 7, 0],   #who, play, basketball
+    [5, 7, 0],   #many, play, basketball
+    #"city birthday"
+    [3, 1, 6],   #city, birthday, orange
+    [3, 4, 2],   #city, man, but
+    [3, 9, 4],   #city, who, man
+    #"orange shirt"
+    [6, 8, 4],   #orange, shirt, man
+    [1, 6, 8],   #birthday, orange, shirt
+    [2, 6, 8],   #but, orange, shirt
 ]
 
-# Weight templates so some bigrams appear more frequently
 TEMPLATE_WEIGHTS = [3, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2]
 
 
@@ -68,14 +43,12 @@ def build_sequences(samples, num_seqs=NUM_SEQS, seed=SEED):
 
     available_classes = set(class_to_samples.keys())
 
-    # Filter templates to only use classes present in the test set
     valid_templates = [
         t for t in TEMPLATES
         if all(c in available_classes for c in t)
     ]
 
     if not valid_templates:
-        # Fallback: random sampling if no templates match
         print("Warning: no valid templates found, falling back to random sampling.")
         classes = list(available_classes)
         valid_templates = [
@@ -122,7 +95,6 @@ def main():
     sequences, template_usage = build_sequences(samples)
     print(f"Built {len(sequences)} sequences of length {SEQ_LENGTH}.")
 
-    # Report bigram coverage
     from collections import Counter
     bigram_counts = Counter()
     for t in template_usage:
@@ -137,7 +109,6 @@ def main():
     torch.save(sequences, OUTPUT_FILE)
     print(f"\nSaved → {OUTPUT_FILE}")
 
-    # Save template info for reporting
     with open(TEMPLATES_FILE, "w") as f:
         json.dump({
             "templates": TEMPLATES,

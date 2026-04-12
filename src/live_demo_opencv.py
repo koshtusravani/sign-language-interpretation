@@ -1,16 +1,3 @@
-"""
-live_demo_opencv.py — Real-time sign recognition using webcam.
-
-Frame-based baseline demo. Shows:
-  - CNN prediction per frame
-  - Smoothed prediction over a rolling window (majority vote)
-  - Per-frame confidence and entropy (uncertainty)
-  - Top-3 predictions
-
-Uses OpenCV + MediaPipe for hand detection and cropping.
-Press 'q' to quit.
-"""
-
 import os
 import cv2
 import torch
@@ -29,11 +16,6 @@ CONFIDENCE_THRESHOLD = 0.45
 PADDING              = 40
 TOP_K                = 3
 
-
-# ---------------------------------------------------------------------------
-# Model — must match wlasl_train.py exactly
-# ---------------------------------------------------------------------------
-
 class VideoWordClassifier(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -49,7 +31,6 @@ class VideoWordClassifier(nn.Module):
         self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
-        # x: (1, 1, C, H, W) — single frame treated as T=1
         B, T, C, H, W = x.shape
         x        = x.view(B * T, C, H, W)
         features = self.feature_extractor(x).view(B * T, 512)
@@ -81,7 +62,6 @@ def stable_label(pred_buffer):
 
 
 def main():
-    # ── Load classes from dataloader (ground truth source) ──────────────
     _, classes = get_wlasl_dataloader(split="test")
     num_classes = len(classes)
 
@@ -99,7 +79,6 @@ def main():
 
     transform = get_transform()
 
-    # ── MediaPipe hands ──────────────────────────────────────────────────
     try:
         import mediapipe as mp
         mp_hands = mp.solutions.hands
@@ -164,10 +143,9 @@ def main():
         if hand_found and roi is not None and roi.size > 0:
             rgb_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
             tensor  = transform(rgb_roi).unsqueeze(0).unsqueeze(0).to(device)
-            # shape: (1, 1, C, H, W)
-
+            
             with torch.no_grad():
-                logits = model(tensor)                          # (1, num_classes)
+                logits = model(tensor)                         
                 probs  = torch.softmax(logits, dim=1)[0].cpu().numpy()
 
             pred_idx      = int(np.argmax(probs))
@@ -195,7 +173,6 @@ def main():
             display_ent   = 0.0
             topk_text     = []
 
-        # ── HUD ─────────────────────────────────────────────────────────
         cv2.rectangle(display, (0, 0), (w, 130), (20, 20, 20), -1)
 
         cv2.putText(display, f"Prediction : {display_label}",

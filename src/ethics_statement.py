@@ -1,11 +1,3 @@
-"""
-ethics_statement.py — Generate ethics and accessibility statement.
-
-The proposal says the project should address ethics in terms of
-accessibility and inclusivity. This script writes a structured
-ethics statement to results/ethics_statement.txt and prints it.
-"""
-
 import os
 
 OUTPUT_FILE = "results/ethics_statement.txt"
@@ -13,17 +5,14 @@ os.makedirs("results", exist_ok=True)
 
 STATEMENT = """
 ETHICS STATEMENT — ACCESSIBILITY AND INCLUSIVITY
-=================================================
 
-PROJECT CONTEXT
----------------
+PROJECT CONTEXT:
 This project develops an AI-based sign language recognition system
 using the WLASL (Word-Level American Sign Language) dataset. Sign
 language recognition has direct relevance to accessibility and
 inclusivity for the Deaf and Hard of Hearing community.
 
-ACCESSIBILITY CONSIDERATIONS
------------------------------
+ACCESSIBILITY CONSIDERATIONS:
 1. Sign language as a first language
    American Sign Language (ASL) is a complete, natural language used
    by an estimated 250,000–500,000 people in the US and Canada. Any
@@ -46,8 +35,7 @@ ACCESSIBILITY CONSIDERATIONS
    for underrepresented groups, which would disproportionately
    affect the very community the system is meant to serve.
 
-INCLUSIVITY CONSIDERATIONS
---------------------------
+INCLUSIVITY CONSIDERATIONS:
 1. Community involvement
    Sign language technology should be developed with, not for, the
    Deaf community. The design decisions in this project (vocabulary
@@ -70,14 +58,12 @@ INCLUSIVITY CONSIDERATIONS
    particularly in high-stakes contexts such as medical or legal
    interpretation.
 
-RESPONSIBLE USE
----------------
+RESPONSIBLE USE:
 This system is a research prototype intended for academic evaluation
 of contextual modelling techniques. It is not suitable for deployment
 as an accessibility aid without significant further development,
 community consultation, and rigorous evaluation on diverse signers.
 
-=================================================
 """
 
 with open(OUTPUT_FILE, "w", encoding="utf-8") as f:

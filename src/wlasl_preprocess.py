@@ -32,8 +32,7 @@ def extract_segment_frames(video_path, output_folder, start_frame=None, end_fram
     if total_frames <= 0:
         cap.release()
         return
-
-    # fallback to whole video if segment is invalid
+    
     if start_frame is None or end_frame is None or end_frame <= start_frame:
         start_frame = 0
         end_frame = total_frames - 1
@@ -70,7 +69,6 @@ def extract_segment_frames(video_path, output_folder, start_frame=None, end_fram
 def main():
     action_segments = load_action_segments()
 
-    # clear old extracted frames so you don't mix old + new
     if os.path.exists(FRAME_DIR):
         shutil.rmtree(FRAME_DIR)
     os.makedirs(FRAME_DIR, exist_ok=True)
