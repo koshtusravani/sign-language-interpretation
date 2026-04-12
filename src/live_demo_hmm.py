@@ -1,50 +1,44 @@
 import os
 import cv2
+import math
 import torch
+import torch.nn as nn
 import numpy as np
-import mediapipe as mp
 from collections import deque
 from torchvision import models, transforms
 
-MODEL_PATH = "models/cnn_baseline.pth"
-CLASS_NAMES_PATH = "data/metadata/class_names.txt"
-LEARNED_TRANSITION_PATH = "results/learned_transition_matrix.npy"
+from wlasl_dataloader import get_wlasl_dataloader
+from hmm_sequence import estimate_transition_from_sequences
 
-WINDOW_NAME = "Live HMM Sign Recognition"
+MODEL_PATH     = "models/wlasl_word_model_best.pth"
+SEQUENCES_PATH = "results/sequences.pt"
+WINDOW_NAME    = "Live Sign Recognition — HMM Context-Aware"
 
-BUFFER_SIZE = 12
-CONFIDENCE_THRESHOLD = 0.75
-PADDING = 40
-STAY_PROB = 0.8
-TOP_K = 3
+BUFFER_SIZE          = 15
+CONFIDENCE_THRESHOLD = 0.45
+PADDING              = 40
+TOP_K                = 3
 
+class VideoWordClassifier(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        backbone = models.resnet18(weights=None)
+        for param in backbone.parameters():
+            param.requires_grad = False
+        for param in backbone.layer3.parameters():
+            param.requires_grad = True
+        for param in backbone.layer4.parameters():
+            param.requires_grad = True
+        self.feature_extractor = nn.Sequential(*list(backbone.children())[:-1])
+        self.dropout    = nn.Dropout(p=0.5)
+        self.classifier = nn.Linear(512, num_classes)
 
-def load_class_names(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Missing class names file: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        class_names = [line.strip() for line in f if line.strip()]
-
-    if not class_names:
-        raise ValueError("No class names found in class_names.txt")
-
-    return class_names
-
-
-def build_model(num_classes, model_path, device):
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Missing model file: {model_path}\n"
-            "Run cnn_training.py first."
-        )
-
-    model = models.resnet18(weights=None)
-    model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model = model.to(device)
-    model.eval()
-    return model
+    def forward(self, x):
+        B, T, C, H, W = x.shape
+        x        = x.view(B * T, C, H, W)
+        features = self.feature_extractor(x).view(B * T, 512)
+        features = self.dropout(features)
+        return self.classifier(features)
 
 
 def get_transform():
@@ -52,226 +46,215 @@ def get_transform():
         transforms.ToPILImage(),
         transforms.Resize((128, 128)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
     ])
 
 
-def preprocess_roi(roi, transform, device):
-    rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-    tensor = transform(rgb).unsqueeze(0).to(device)
-    return tensor
+def prediction_entropy(probs_np):
+    probs = np.clip(probs_np, 1e-12, 1.0)
+    return float(-np.sum(probs * np.log(probs)))
 
+def viterbi_decode_np(emission_buffer, log_trans_np):
+    T   = len(emission_buffer)
+    N   = emission_buffer[0].shape[0]
+    eps = 1e-12
 
-def build_default_transition_matrix(num_classes, stay_prob=0.8):
-    transition = np.full(
-        (num_classes, num_classes),
-        (1.0 - stay_prob) / (num_classes - 1),
-        dtype=np.float64
-    )
-    np.fill_diagonal(transition, stay_prob)
-    return transition
+    log_em = np.log(np.clip(np.array(emission_buffer), eps, 1.0))  
 
+    dp      = np.zeros((T, N))
+    backptr = np.zeros((T, N), dtype=np.int32)
 
-def load_transition_matrix(num_classes):
-    if os.path.exists(LEARNED_TRANSITION_PATH):
-        transition = np.load(LEARNED_TRANSITION_PATH)
-        if transition.shape == (num_classes, num_classes):
-            return transition
-    return build_default_transition_matrix(num_classes, STAY_PROB)
-
-
-def viterbi_decode(emissions, transition_matrix):
-    """
-    emissions: shape (T, N)
-    transition_matrix: shape (N, N)
-    """
-    T, N = emissions.shape
-
-    emissions = np.clip(emissions, 1e-12, 1.0)
-    transition_matrix = np.clip(transition_matrix, 1e-12, 1.0)
-
-    log_emissions = np.log(emissions)
-    log_transitions = np.log(transition_matrix)
-
-    dp = np.zeros((T, N), dtype=np.float64)
-    backpointer = np.zeros((T, N), dtype=np.int32)
-
-    dp[0] = log_emissions[0]
+    dp[0] = log_em[0] - math.log(N)   
 
     for t in range(1, T):
-        for j in range(N):
-            scores = dp[t - 1] + log_transitions[:, j]
-            best_prev = np.argmax(scores)
-            dp[t, j] = scores[best_prev] + log_emissions[t, j]
-            backpointer[t, j] = best_prev
+        scores         = dp[t - 1][:, None] + log_trans_np   
+        best_prev      = np.argmax(scores, axis=0)           
+        dp[t]          = scores[best_prev, np.arange(N)] + log_em[t]
+        backptr[t]     = best_prev
 
-    best_path = np.zeros(T, dtype=np.int32)
-    best_path[-1] = np.argmax(dp[-1])
+    best_last = int(np.argmax(dp[-1]))
 
-    for t in range(T - 2, -1, -1):
-        best_path[t] = backpointer[t + 1, best_path[t + 1]]
+    path = [best_last]
+    for t in range(T - 1, 0, -1):
+        best_last = backptr[t, best_last]
+        path.append(best_last)
 
-    return best_path
+    path.reverse()
+    return path[-1]   
 
 
 def main():
+    _, classes = get_wlasl_dataloader(split="test")
+    num_classes = len(classes)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    class_names = load_class_names(CLASS_NAMES_PATH)
-    num_classes = len(class_names)
 
-    model = build_model(num_classes, MODEL_PATH, device)
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(
+            f"Missing model: {MODEL_PATH}\nRun wlasl_train.py first."
+        )
+    model = VideoWordClassifier(num_classes).to(device)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.eval()
+    print(f"Loaded model — {num_classes} classes")
+
+    if os.path.exists(SEQUENCES_PATH):
+        sequences  = torch.load(SEQUENCES_PATH)
+        log_trans  = estimate_transition_from_sequences(sequences, num_classes)
+        log_trans_np = log_trans.numpy()
+        print("Loaded estimated transition matrix from sequences.pt")
+    else:
+        off = (1.0 - 0.1) / max(num_classes - 1, 1)
+        trans = np.full((num_classes, num_classes), off)
+        np.fill_diagonal(trans, 0.1)
+        log_trans_np = np.log(np.clip(trans, 1e-12, 1.0))
+        print("Using uniform transition matrix (sequences.pt not found)")
+
     transform = get_transform()
-    transition_matrix = load_transition_matrix(num_classes)
 
-    mp_hands = mp.solutions.hands
-    mp_draw = mp.solutions.drawing_utils
-
-    hands = mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=1,
-        min_detection_confidence=0.7,
-        min_tracking_confidence=0.7
-    )
+    try:
+        import mediapipe as mp
+        mp_hands = mp.solutions.hands
+        mp_draw  = mp.solutions.drawing_utils
+        hands    = mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.6,
+        )
+        use_mediapipe = True
+    except ImportError:
+        print("MediaPipe not installed — using full frame as ROI.")
+        use_mediapipe = False
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam.")
 
     emission_buffer = deque(maxlen=BUFFER_SIZE)
-    raw_label = "No hand"
-    hmm_label = "No hand"
-    confidence = 0.0
-    top3_lines = []
+    raw_label   = "No hand"
+    hmm_label   = "No hand"
+    entropy_val = 0.0
+    topk_text   = []
 
     print("Press 'q' to quit.")
+    print("Left panel  = Raw CNN (no context)")
+    print("Right panel = HMM Viterbi (context-aware)")
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Failed to read webcam frame.")
             break
 
-        frame = cv2.flip(frame, 1)
+        frame   = cv2.flip(frame, 1)
         display = frame.copy()
-
         h, w, _ = frame.shape
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = hands.process(rgb_frame)
 
         hand_found = False
+        roi        = None
 
-        if result.multi_hand_landmarks:
+        if use_mediapipe:
+            rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result = hands.process(rgb)
+
+            if result.multi_hand_landmarks:
+                hand_found = True
+                lms = result.multi_hand_landmarks[0]
+                xs  = [lm.x for lm in lms.landmark]
+                ys  = [lm.y for lm in lms.landmark]
+
+                x1 = max(0, int(min(xs) * w) - PADDING)
+                y1 = max(0, int(min(ys) * h) - PADDING)
+                x2 = min(w, int(max(xs) * w) + PADDING)
+                y2 = min(h, int(max(ys) * h) + PADDING)
+
+                roi = frame[y1:y2, x1:x2]
+                cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                mp_draw.draw_landmarks(display, lms, mp_hands.HAND_CONNECTIONS)
+        else:
             hand_found = True
-            hand_landmarks = result.multi_hand_landmarks[0]
+            roi        = frame
 
-            xs = [lm.x for lm in hand_landmarks.landmark]
-            ys = [lm.y for lm in hand_landmarks.landmark]
+        if hand_found and roi is not None and roi.size > 0:
+            rgb_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            tensor  = transform(rgb_roi).unsqueeze(0).unsqueeze(0).to(device)
 
-            x1 = max(0, int(min(xs) * w) - PADDING)
-            y1 = max(0, int(min(ys) * h) - PADDING)
-            x2 = min(w, int(max(xs) * w) + PADDING)
-            y2 = min(h, int(max(ys) * h) + PADDING)
+            with torch.no_grad():
+                logits = model(tensor)
+                probs  = torch.softmax(logits, dim=1)[0].cpu().numpy()
 
-            roi = frame[y1:y2, x1:x2]
+            pred_idx    = int(np.argmax(probs))
+            confidence  = float(probs[pred_idx])
+            entropy_val = prediction_entropy(probs)
+            raw_label   = classes[pred_idx]
 
-            if roi.size > 0:
-                input_tensor = preprocess_roi(roi, transform, device)
-
-                with torch.no_grad():
-                    outputs = model(input_tensor)
-                    probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()
-
-                pred_idx = int(np.argmax(probs))
-                confidence = float(probs[pred_idx])
-                raw_label = class_names[pred_idx]
-
-                if confidence >= CONFIDENCE_THRESHOLD:
-                    emission_buffer.append(probs)
-                else:
-                    emission_buffer.append(
-                        np.ones(num_classes, dtype=np.float64) / num_classes
-                    )
-
-                top3_idx = np.argsort(probs)[::-1][:TOP_K]
-                top3_lines = [
-                    f"{class_names[i]}: {probs[i] * 100:.1f}%"
-                    for i in top3_idx
-                ]
-
-                if len(emission_buffer) > 0:
-                    emissions = np.array(emission_buffer)
-                    decoded = viterbi_decode(emissions, transition_matrix)
-                    hmm_idx = int(decoded[-1])
-                    hmm_label = class_names[hmm_idx]
-                else:
-                    hmm_label = raw_label
-
-                mp_draw.draw_landmarks(
-                    display,
-                    hand_landmarks,
-                    mp_hands.HAND_CONNECTIONS
+            if confidence >= CONFIDENCE_THRESHOLD:
+                emission_buffer.append(probs)
+            else:
+                emission_buffer.append(
+                    np.ones(num_classes, dtype=np.float64) / num_classes
                 )
 
-        if not hand_found:
-            raw_label = "No hand"
-            hmm_label = "No hand"
-            confidence = 0.0
-            top3_lines = []
+            if len(emission_buffer) >= 2:
+                hmm_idx   = viterbi_decode_np(list(emission_buffer), log_trans_np)
+                hmm_label = classes[hmm_idx]
+            else:
+                hmm_label = raw_label
+
+            top_idx   = np.argsort(probs)[::-1][:TOP_K]
+            topk_text = [
+                f"{classes[i]}: {probs[i] * 100:.1f}%"
+                for i in top_idx
+            ]
+
+        else:
             emission_buffer.clear()
+            raw_label   = "No hand"
+            hmm_label   = "No hand"
+            entropy_val = 0.0
+            topk_text   = []
 
-        cv2.rectangle(display, (0, 0), (w, 145), (20, 20, 20), -1)
+        cv2.rectangle(display, (0, 0), (w, 150), (20, 20, 20), -1)
 
-        cv2.putText(
-            display,
-            f"Raw CNN: {raw_label}",
-            (20, 35),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.9,
-            (0, 255, 255),
-            2
+        cv2.putText(display, "CNN (no context):",
+                    (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (150, 150, 150), 1)
+        cv2.putText(display, raw_label,
+                    (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 2)
+
+        cv2.putText(display, "HMM (context-aware):",
+                    (w // 2, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (150, 150, 150), 1)
+        cv2.putText(display, hmm_label,
+                    (w // 2, 65), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 0), 2)
+
+        max_entropy  = math.log(num_classes)
+        entropy_norm = min(entropy_val / max_entropy, 1.0)
+        bar_w        = int((w - 40) * entropy_norm)
+        bar_color    = (
+            int(255 * entropy_norm),
+            int(255 * (1 - entropy_norm)),
+            50,
         )
+        cv2.rectangle(display, (20, 115), (20 + bar_w, 138), bar_color, -1)
+        cv2.rectangle(display, (20, 115), (w - 20, 138), (100, 100, 100), 1)
+        cv2.putText(display, f"Entropy: {entropy_val:.3f} / {max_entropy:.3f}",
+                    (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (200, 200, 200), 1)
 
-        cv2.putText(
-            display,
-            f"HMM Decoded: {hmm_label}",
-            (20, 75),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (0, 255, 0),
-            2
-        )
-
-        cv2.putText(
-            display,
-            f"Confidence: {confidence * 100:.1f}%",
-            (20, 115),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 255, 255),
-            2
-        )
-
-        y0 = 180
-        for line in top3_lines:
-            cv2.putText(
-                display,
-                line,
-                (20, y0),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.75,
-                (255, 255, 255),
-                2
-            )
+        y0 = 170
+        for line in topk_text:
+            cv2.putText(display, line, (20, y0),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.68, (255, 255, 255), 2)
             y0 += 30
 
         cv2.imshow(WINDOW_NAME, display)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
     cap.release()
-    hands.close()
+    if use_mediapipe:
+        hands.close()
     cv2.destroyAllWindows()
 
 
